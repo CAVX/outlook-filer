@@ -1,10 +1,10 @@
 # outlook-filer
-A Simple interface for filing emails when you have many folders.
+A Simple interface for filing emails/conversations when you have many folders.
 
 This utility can save vast amounts of time if, like me, you have many (hundreds of) folders and receive large amounts of email that must be kept and filed.
 
 # Installation
- - Download the [latest release](https://github.com/TotallyInformation/outlook-filer/releases/latest)
+ - Download the [latest release](https://github.com/CAVX/outlook-filer/releases/latest)
  - Unpack the *.frm and *.frx files to somewhere convenient.
  - Open the VBA project editor - you can use the alt-f11 keyboard shortcut
  - Import the *.frm file
@@ -31,7 +31,7 @@ End Sub
 # Advanced Use - Filing Conversations
 Sometimes, you will have already recieved an email as part of an ongoing conversation and will have already filed that.
 
-If you have your Outlook view in a conversation view mode, you can expand the conversation & choose all (or some) of the emails in the conversation and file them all to the same location. If one of the emails in the conversation is already filed, the folder(s) filed to will appear in the left-hand list and you can choose one of those entries instead of a folder in the right-hand list.
+If you have your Outlook view in a conversation view mode, you can click on the high-level conversation (or expand the conversation & choose any of the emails in the conversation) and file them all to the same location. If one of the emails in the conversation is already filed, the folder(s) filed to will appear in the left-hand list and you can choose one of those entries instead of a folder in the right-hand list.
 
 # Advanced Use - Quickly Switch to Another View
 When you have many folders, it can be difficult to spot where they all are in the list - especially if you have sub-folders.

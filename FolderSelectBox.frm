@@ -1,4 +1,4 @@
-VERSION 5.00
+VERSION 2.00
 Begin {C62A69F0-16DC-11CE-9E98-00AA00574A4F} FolderSelectBox 
    Caption         =   "Select Folder for Filing"
    ClientHeight    =   5376
@@ -14,11 +14,13 @@ Attribute VB_GlobalNameSpace = False
 Attribute VB_Creatable = False
 Attribute VB_PredeclaredId = True
 Attribute VB_Exposed = False
-' Show a list of folders taken from the locations of a selected set of emails.
+
+
+' Show a list of folders taken from the locations of a selected set of emails and/or conversations.
 ' Also shows a FULL list of all folders with a dynamic filter box, type some chars to filter the full list
 ' If a folder is selected (preference given to the select folder list), file all of the selected emails to that folder.
 '
-' Facilitates really easy filing once you have put 1 email in a conversation to a particular folder,
+' Facilitates really easy filing once you have put one email in a conversation to a particular folder,
 ' you can easily file all of the other related emails without having to hunt through all of your
 ' folders. Just make sure you use a view with "Conversation View" turned on.
 '
@@ -26,38 +28,37 @@ Attribute VB_Exposed = False
 '
 ' NB: Double-click on on a folder in either list is the same as pressing the "File" Button.
 '
-' WARNINGS: Assumed English folder names for exclusion of Inbox, Sent, etc.
-'           Max 999 folders are supported, change the DIM's below if more needed
-'           It is possible to end up with >1 folder when filtering, this gives an error and doesn't move - change the filter
+' WARNINGS: Assumed English folder names for exclusion of Inbox, Sent, etc. - special characters such as "/" are now supported.
 '
 ' TO DO:
-'   2) Add ability to move to another mailbox (http://www.slipstick.com/developer/working-vba-nondefault-outlook-folders/)
-'   3) Allow multiple filters for full folder list
-'   4) Pre-populate multi filters from conversation subject
-'   5) List of recently selected folders
+'   1) Add ability to move to another mailbox (http://www.slipstick.com/developer/working-vba-nondefault-outlook-folders/)
+'   2) Allow multiple filters for full folder list
 '
-' Author: Julian Knight (Totally Information)
-' Version: v1.3 20015-06-12
+' Current Author: Corey Blakeborough
+' Original Author: Julian Knight (Totally Information)
+' Version: v2.0 2020-09-18
 ' History:
-'   v1.4 20015-06-29 - Chg default location to Win default. Add auto-selects. Add recents list (not yet working)
-'   v1.3 20015-06-12 - Add copy link to clipboard after moving
-'   v1.2 20015-05-18 - Add double-click processing
-'   v1.1 20015-05-12 - Various improvements - add filter to full folder list, add view button
-'   v1.0 20015-05-08 - Initial Release
+'   v2.0 2020-09-18 - Forked project. Conversation support. Fixed issue with special characters.
+'   v1.4 2015-06-29 - Chg default location to Win default. Add auto-selects. Add recents list (not yet working)
+'   v1.3 2015-06-12 - Add copy link to clipboard after moving
+'   v1.2 2015-05-18 - Add double-click processing
+'   v1.1 2015-05-12 - Various improvements - add filter to full folder list, add view button
+'   v1.0 2015-05-08 - Initial Release
 
 Option Explicit
 
 ' Define form global variables
-Dim folderNames(0 To 99) As String
+Dim folderNames() As String
 Dim maxNames As Long
-Dim folderPaths(0 To 99) As String
+Dim folderPaths() As String
 Dim maxPaths As Long
-Dim folderAllPaths(0 To 999) As Variant
+Dim folderAllPaths() As Variant
 Dim maxFAP As Long
-Dim folderAllNames(0 To 999) As String
+Dim folderAllNames() As String
 Dim maxFAN As Long
 Dim mailbox As String
 Dim exitDelay As Long ' seconds to delay closure of form to allow copy of link
+Dim changingFolders As Boolean
 
 Private Sub btnCancel_Click()
     ' Do nothing other than cancel everything
@@ -67,7 +68,6 @@ End Sub
 ' Only change the current view to the selected folder
 Private Sub btnView_Click()
     Dim fldr As Outlook.MAPIFolder
-    Dim objItem As Outlook.MailItem
     
     Set fldr = fldrDest
     ' If anywhere selected, change the explorer view now
@@ -77,31 +77,60 @@ Private Sub btnView_Click()
     
     ' End
     Set fldr = Nothing
-    Set objItem = Nothing
     Unload Me
 End Sub
 
 ' Do the move
 Private Sub btnFileToFolder_Click()
     Dim fldr As Outlook.MAPIFolder
-    Dim objItem As Outlook.MailItem
+    Dim objItem As Variant
+    Dim objConvHeader As Outlook.ConversationHeader
     Dim x As Long
     
     Set fldr = fldrDest
     On Error GoTo err
     ' If anywhere to move to, move each email now
     If IsObject(fldr) Then
-        ' Also add the selected destination to the top of the recents list
-        lstRecent.AddItem fldr.Name
+        Dim parsedConversations(0) As String
+        
+        'Start with any conversations
+        Dim oSelection As Selection
+        Set oSelection = ActiveExplorer.Selection.GetSelection(olConversationHeaders)
+        
+        If oSelection.Count > 0 Then
+            For Each objConvHeader In oSelection
+                ' Cache conversation ID
+                If IsInArray(parsedConversations, objConvHeader.ConversationID) = False Then
+                    AddToArray parsedConversations, objConvHeader.ConversationID
+            
+                    For Each objItem In objConvHeader.GetItems ' Items in the conversation.
+                        If TypeName(objItem) = "MailItem" Or TypeName(objItem) = "AppointmentItem" Or TypeName(objItem) = "MeetingItem" Then
+                            ' Only move items not already in the dest folder
+                            If objItem.Parent.Name <> fldr.Name Then
+                                objItem.Move fldr
+                                x = x + 1
+                                AddLinkToMessage objItem
+                            End If
+                        End If
+                    Next
+                End If
+            Next objConvHeader
+        End If
+        
+        'Now add any selected items that weren't part of those conversations
         x = 0
         For Each objItem In ActiveExplorer.Selection
-            ' Only move items not already in the dest folder
-            If objItem.Parent.Name <> fldr.Name Then
-                objItem.Move fldr
-                x = x + 1
-                AddLinkToMessage objItem
+            If TypeName(objItem) = "MailItem" Or TypeName(objItem) = "AppointmentItem" Or TypeName(objItem) = "MeetingItem" Then
+                If IsInArray(parsedConversations, objItem.ConversationID) = True And objItem.Parent.Name <> fldr.Name Then
+                    objItem.Move fldr
+                    x = x + 1
+                    AddLinkToMessage objItem
+                End If
             End If
         Next objItem
+    
+        ' Also add the selected destination to the top of the recents list
+        lstRecent.AddItem fldr.Name
     End If
     
     GoTo endit
@@ -113,17 +142,16 @@ endit:
     Set fldr = Nothing
     Set objItem = Nothing
     ' Delay exit to allow time to copy the new link
-    WaitFor (5)
+    'WaitFor (5)
     Unload Me
 End Sub
 
 Private Function fldrDest() As Outlook.MAPIFolder
     Dim obj As Object
     'Dim fldrDest As Outlook.MAPIFolder
-    Dim destFldr As String
-    Dim arr, e, i As Integer
-    Dim objItem As Outlook.MailItem
+    Dim destIdx, arr, e, i As Integer
     Dim x
+    Dim pos, val
     
     ' Index = -1 if nothing selected
     If lstFolders.ListIndex > -1 Then
@@ -140,22 +168,31 @@ Private Function fldrDest() As Outlook.MAPIFolder
     ElseIf lstAllFolders.ListIndex > -1 Then
         'Debug.Print "Selected from All Folders", lstAllFolders.Value; lstAllFolders.ListIndex
         
-        arr = Filter(SourceArray:=folderAllPaths, match:=lstAllFolders.Value, Compare:=vbTextCompare)
+        'arr = Filter(SourceArray:=folderAllPaths, Match:=lstAllFolders.Value, Compare:=vbTextCompare)
         ' Annoyingly, filter has no way to do exact matches
+        'i = 0
+        'For Each e In arr
+        '    If Len(e) = Len("\\" & mailbox & lstAllFolders.Value) Then
+        '        ' exact match
+        '        i = i + 1
+        '        destFldr = e
+        '    End If
+        'Next e
+        
         i = 0
-        For Each e In arr
-            If Len(e) = Len("\\" & mailbox & lstAllFolders.Value) Then
-                ' exact match
+        For e = LBound(folderAllNames) To UBound(folderAllNames)
+            If lstAllFolders.Value = folderAllNames(e) Then
                 i = i + 1
-                destFldr = e
+                destIdx = e
             End If
         Next e
+        
         ' If there is more than one matching folder, error, else move
         If i = 1 Then
             'Debug.Print "Filtered:", arr(0)
             
             'NB: application.session.... gives the top level folder set for the current mailbox
-            Set fldrDest = ReturnDestinationFolder(destFldr, _
+            Set fldrDest = ReturnDestinationFolder(folderAllNames(destIdx), _
                 Application.Session.GetDefaultFolder(olFolderInbox).Parent.Folders _
             )
         Else
@@ -168,7 +205,6 @@ Private Function fldrDest() As Outlook.MAPIFolder
     End If
     
     Set obj = Nothing
-    Set objItem = Nothing
 
 End Function
 
@@ -185,7 +221,7 @@ Private Function ReturnDestinationFolder(findStr As Variant, fldrs As Outlook.Fo
     
     ' We are going to ignore the mailbox ID
     idx = LBound(findArr)
-    If InStr(findArr(idx), "@") Then idx = idx + 1
+    If InStr(findArr(idx), "@") Or Len(findArr(idx)) = 0 Then idx = idx + 1
     
     For Each fldr In fldrs
         If fldr.Name = findArr(idx) Then
@@ -215,32 +251,42 @@ Private Function ReturnDestinationFolder(findStr As Variant, fldrs As Outlook.Fo
 End Function
 
 Private Sub lstAllFolders_Change()
-    
-    'Deselect the previously selected folder
-    lstFolders.Selected(0) = False
-    
+    If changingFolders = False Then
+        changingFolders = True
+        'Deselect the previously selected folder
+        lstFolders.Selected(0) = False
+        changingFolders = False
+    End If
 End Sub
 
 Private Sub lstAllFolders_DblClick(ByVal Cancel As MSForms.ReturnBoolean)
-    
-    'Deselect the previously selected folder
-    lstFolders.Selected(0) = False
+    If changingFolders = False Then
+        changingFolders = True
+        'Deselect the previously selected folder
+        lstFolders.Selected(0) = False
+        changingFolders = False
+    End If
     
     Call btnFileToFolder_Click
     
 End Sub
 
 Private Sub lstFolders_Change()
-    
-    'deselect the first from the all folders list
-    lstAllFolders.Selected(0) = False
-    
+    If changingFolders = False Then
+        changingFolders = True
+        'deselect the first from the all folders list
+        lstAllFolders.Selected(0) = False
+        changingFolders = False
+    End If
 End Sub
 
 Private Sub lstFolders_DblClick(ByVal Cancel As MSForms.ReturnBoolean)
-    
-    'deselect the first from the all folders list
-    lstAllFolders.Selected(0) = False
+    If changingFolders = False Then
+        changingFolders = True
+        'deselect the first from the all folders list
+        lstAllFolders.Selected(0) = False
+        changingFolders = False
+    End If
     
     Call btnFileToFolder_Click
     
@@ -266,28 +312,35 @@ Private Sub tbFilterAllFolders_Change()
         If .Value = vbNullString Then
             Me.lstAllFolders.List = folderAllNames
         Else
-            Me.lstAllFolders.List = Filter(SourceArray:=folderAllNames, match:=.Value, Compare:=vbTextCompare)
+            Me.lstAllFolders.List = Filter(SourceArray:=folderAllNames, Match:=.Value, Compare:=vbTextCompare)
         End If
     End With
     
+    On Error Resume Next
     'When filtering, select the first from the all folders list
     lstAllFolders.Selected(0) = True
     'Deselect the previously selected folder
     lstFolders.Selected(0) = False
-
+    
 End Sub
 
 ' Set up the form
 Private Sub UserForm_Initialize()
 
     Dim objItem As Object
+    Dim objConvHeader As Outlook.ConversationHeader
     Dim i As Long
     Dim numSelected As Long
     Dim numEmailsSelected As Long
-    Dim mb
+    Dim mb() As String
     
     Dim x As Object
     Set x = Application
+    
+    ReDim Preserve folderNames(0)
+    ReDim Preserve folderPaths(0)
+    ReDim Preserve folderAllPaths(0)
+    ReDim Preserve folderAllNames(0)
     
     'Start Userform Centered inside Excel Screen (for dual monitors)
     ' From http://www.thespreadsheetguru.com/the-code-vault/launch-vba-userforms-in-correct-window-with-dual-monitors
@@ -299,41 +352,36 @@ Private Sub UserForm_Initialize()
     'List of accounts: Application.Session.Accounts
     
     ' Walk through all selected emails and compile a list of folders
-    ' that they are in. Ignore the inbox
+    ' that they are in.
     i = 0
     maxNames = 0
     maxPaths = 0
     numSelected = 0
     numEmailsSelected = 0
+    
+    Dim parsedConversations(0) As String
+    
+    'Start with any conversations
+    Dim oSelection As Selection
+    Set oSelection = ActiveExplorer.Selection.GetSelection(olConversationHeaders)
+    
+    If oSelection.Count > 0 Then
+        For Each objConvHeader In oSelection
+            ' Cache conversation ID
+            If IsInArray(parsedConversations, objConvHeader.ConversationID) = False Then
+                AddToArray parsedConversations, objConvHeader.ConversationID
+                
+                For Each objItem In objConvHeader.GetItems ' Items in the conversation.
+                    InitializeItem objItem, i, mb, numSelected, numEmailsSelected
+                Next
+            End If
+        Next objConvHeader
+    End If
+    
     For Each objItem In ActiveExplorer.Selection
-        numSelected = numSelected + 1
-        ' Only interested in real mail items (not calendar entries, cancellation notices, etc.)
-        If objItem.MessageClass = "IPM.Note" Then
-            ' How many items?
-            numEmailsSelected = numEmailsSelected + 1
-            ' Check that parent item really is a folder
-            If objItem.Parent.Class = olFolder Then
-                ' Only want folders != Inbox/Send/Deleted
-                If objItem.Parent.Name <> "Inbox" And _
-                        objItem.Parent.Name <> "Sent Items" And _
-                        objItem.Parent.Name <> "Deleted Items" And _
-                        IsInArray(folderPaths, objItem.Parent.folderPath) = False Then
-                        'Contains(folderPaths, objItem.Parent.folderPath) = False Then
-                        
-                    ' Save mailbox name
-                    If maxPaths = 0 Then
-                        mb = Split(objItem.Parent.folderPath, "\")
-                        mailbox = mb(2)
-                    End If
-                    folderPaths(maxPaths) = objItem.Parent.folderPath
-                    maxPaths = maxPaths + 1
-                    folderNames(maxNames) = objItem.Parent.Name
-                    maxNames = maxNames + 1
-                    
-                    'Debug.Print "New Folder:", folderPaths(i), folderNames(i), i
-                    i = i + 1
-                    
-                End If
+        If TypeName(objItem) = "MailItem" Or TypeName(objItem) = "AppointmentItem" Or TypeName(objItem) = "MeetingItem" Then
+            If IsInArray(parsedConversations, objItem.ConversationID) = True Then
+                InitializeItem objItem, i, mb, numSelected, numEmailsSelected
             End If
         End If
     Next objItem
@@ -363,6 +411,36 @@ Private Sub UserForm_Initialize()
     
     Set objItem = Nothing
     
+End Sub
+
+Sub InitializeItem(ByRef objItem As Object, _
+                    ByRef i As Long, _
+                    ByRef mb() As String, _
+                    ByRef numSelected As Long, _
+                    ByRef numEmailsSelected As Long)
+    numSelected = numSelected + 1
+    ' How many items?
+    numEmailsSelected = numEmailsSelected + 1
+    ' Check that parent item really is a folder
+    If objItem.Parent.Class = olFolder Then
+        ' Edited to no longer exclude any folders they're in. Seems weird that any were excluded.
+        If IsInArray(folderPaths, objItem.Parent.FolderPath) = False Then
+                
+            ' Save mailbox name
+            If IsNull(mailbox) Or mailbox = "" Then
+                mb = Split(objItem.Parent.FolderPath, "\")
+                mailbox = mb(2)
+            End If
+            
+            AddToArray folderPaths, objItem.Parent.FolderPath
+            maxPaths = maxPaths + 1
+            AddToArray folderNames, objItem.Parent.Name
+            maxNames = maxNames + 1
+            
+            i = i + 1
+            
+        End If
+    End If
 End Sub
 
 ' Create the all-folder list
@@ -405,20 +483,20 @@ Sub ProcessFolder(objStartFolder As Outlook.MAPIFolder, _
         Then
             ' Save mailbox name
             If maxFAP = 0 And mailbox = "" Then
-                mb = Split(objFolder.folderPath, "\")
+                mb = Split(objFolder.FolderPath, "\")
                 mailbox = mb(2)
             End If
 
             ' Add to the All Folder List
             lstAllFolders.AddItem strFolderName + "\" + objFolder.Name
-            folderAllPaths(maxFAP) = objFolder.folderPath
+            AddToArray folderAllPaths, objFolder.FolderPath
             maxFAP = maxFAP + 1
-            folderAllNames(maxFAN) = strFolderName + "\" + objFolder.Name
+            AddToArray folderAllNames, strFolderName + "\" + objFolder.Name
             maxFAN = maxFAN + 1
             ' Recurse subfolders but not for subfolders of blocked folders
             If blnRecurseSubFolders Then
                 ' Recurse through subfolders
-                ProcessFolder objFolder, True, strFolderPath + "\" + objFolder.folderPath, _
+                ProcessFolder objFolder, True, strFolderPath + "\" + objFolder.FolderPath, _
                     strFolderName + "\" + objFolder.Name
             End If
         End If
@@ -430,7 +508,11 @@ Sub ProcessFolder(objStartFolder As Outlook.MAPIFolder, _
 End Sub
 
 ' Create an outlook: link to a msg
-Sub AddLinkToMessage(objMail As Outlook.MailItem)
+Sub AddLinkToMessage(objItem As Variant)
+    If TypeName(objItem) <> "MailItem" And TypeName(objItem) <> "AppointmentItem" Then
+        Exit Sub
+    End If
+    
     'Dim objMail As Object
     'was earlier Outlook.MailItem
     'Dim doClipboard As New DataObject
@@ -455,7 +537,7 @@ Sub AddLinkToMessage(objMail As Outlook.MailItem)
     '    txt = "outlook:" + objMail.EntryID + "][ITEM: " + objMail.Subject + " (" + objMail.MessageClass + ")"
     'End If
     
-    txt = "outlook:" + objMail.EntryID
+    txt = "outlook:" + objItem.EntryID
     
     ' Replace all spaces with %20
     CopyTextToClipboard (Replace(txt, " ", "%20"))
@@ -467,12 +549,15 @@ End Sub
 
 Private Sub AddToArray(ByRef arr As Variant, val As Variant)
 On Error GoTo err
-    ReDim Preserve arr(LBound(arr) To UBound(arr) + 1)
+    If arr(0) <> "" Or UBound(arr) > 0 Then
+        ReDim Preserve arr(LBound(arr) To UBound(arr) + 1)
+    End If
+    
     On Error GoTo 0
     arr(UBound(arr)) = val
     Exit Sub
 err:
-    Debug.Print "poo"
+    Debug.Print "Failed to add to array"
 End Sub
 
 Function IsInArray(arr As Variant, valueToFind As Variant) As Boolean
@@ -481,7 +566,7 @@ On Error GoTo err
   IsInArray = (UBound(Filter(arr, valueToFind)) > -1)
   Exit Function
 err:
-    Debug.Print "poo"
+    Debug.Print "Failed to add to array"
 End Function
 
 ' @see: http://www.thespreadsheetguru.com/blog/2015/1/13/how-to-use-vba-code-to-copy-text-to-the-clipboard
@@ -514,3 +599,4 @@ Sub WaitFor(NumOfSeconds As Long)
     Loop
 
 End Sub
+
