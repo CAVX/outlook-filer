@@ -16,6 +16,7 @@ Attribute VB_PredeclaredId = True
 Attribute VB_Exposed = False
 
 
+
 ' Show a list of folders taken from the locations of a selected set of emails and/or conversations.
 ' Also shows a FULL list of all folders with a dynamic filter box, type some chars to filter the full list
 ' If a folder is selected (preference given to the select folder list), file all of the selected emails to that folder.
@@ -121,7 +122,7 @@ Private Sub btnFileToFolder_Click()
         x = 0
         For Each objItem In ActiveExplorer.Selection
             If TypeName(objItem) = "MailItem" Or TypeName(objItem) = "AppointmentItem" Or TypeName(objItem) = "MeetingItem" Then
-                If IsInArray(parsedConversations, objItem.ConversationID) = True And objItem.Parent.Name <> fldr.Name Then
+                If IsInArray(parsedConversations, objItem.ConversationID) = False And objItem.Parent.Name <> fldr.Name Then
                     objItem.Move fldr
                     x = x + 1
                     AddLinkToMessage objItem
@@ -214,6 +215,7 @@ Private Function ReturnDestinationFolder(findStr As Variant, fldrs As Outlook.Fo
     Dim fldr As Outlook.MAPIFolder
     Dim findArr As Variant
     Dim idx As Long
+    Dim subI As Long
     
     ' Split the path into an array
     findStr = Replace(findStr, "\\", "")
@@ -229,8 +231,19 @@ Private Function ReturnDestinationFolder(findStr As Variant, fldrs As Outlook.Fo
             If UBound(findArr) > idx Then 'LBound(findArr) Then
                 ' Yes, so recurse if there are any sub folders
                 If fldr.Folders.Count Then
+                    Dim subStr As Variant
+                    subStr = ""
+                    
+                    For subI = idx + 1 To UBound(findArr)
+                        If (subStr <> "") Then
+                            subStr = subStr & "\"
+                        End If
+                        subStr = subStr & findArr(subI)
+                    Next subI
+
+                
                     Set ReturnDestinationFolder = ReturnDestinationFolder( _
-                        findArr(idx + 1), _
+                        subStr, _
                         fldr.Folders _
                     )
                 Else
