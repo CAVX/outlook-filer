@@ -1,4 +1,4 @@
-VERSION 2.00
+VERSION 2.20
 Begin {C62A69F0-16DC-11CE-9E98-00AA00574A4F} FolderSelectBox 
    Caption         =   "Select Folder for Filing"
    ClientHeight    =   5376
@@ -14,7 +14,6 @@ Attribute VB_GlobalNameSpace = False
 Attribute VB_Creatable = False
 Attribute VB_PredeclaredId = True
 Attribute VB_Exposed = False
-
 
 
 ' Show a list of folders taken from the locations of a selected set of emails and/or conversations.
@@ -37,8 +36,9 @@ Attribute VB_Exposed = False
 '
 ' Current Author: Corey Blakeborough
 ' Original Author: Julian Knight (Totally Information)
-' Version: v2.0 2020-09-18
+' Version: v2.2 2020-09-18
 ' History:
+'   v2.2 2020-09-21 - Bugfixes for selection, nested folders, and individual messages
 '   v2.0 2020-09-18 - Forked project. Conversation support. Fixed issue with special characters.
 '   v1.4 2015-06-29 - Chg default location to Win default. Add auto-selects. Add recents list (not yet working)
 '   v1.3 2015-06-12 - Add copy link to clipboard after moving
@@ -95,11 +95,12 @@ Private Sub btnFileToFolder_Click()
         Dim parsedConversations(0) As String
         
         'Start with any conversations
-        Dim oSelection As Selection
-        Set oSelection = ActiveExplorer.Selection.GetSelection(olConversationHeaders)
+        Dim activeSelection, convSelection As Selection
+        Set activeSelection = ActiveExplorer.Selection
+        Set convSelection = activeSelection.GetSelection(olConversationHeaders)
         
-        If oSelection.Count > 0 Then
-            For Each objConvHeader In oSelection
+        If convSelection.Count > 0 Then
+            For Each objConvHeader In convSelection
                 ' Cache conversation ID
                 If IsInArray(parsedConversations, objConvHeader.ConversationID) = False Then
                     AddToArray parsedConversations, objConvHeader.ConversationID
@@ -118,9 +119,11 @@ Private Sub btnFileToFolder_Click()
             Next objConvHeader
         End If
         
+        objItem = Empty
+        
         'Now add any selected items that weren't part of those conversations
         x = 0
-        For Each objItem In ActiveExplorer.Selection
+        For Each objItem In activeSelection
             If TypeName(objItem) = "MailItem" Or TypeName(objItem) = "AppointmentItem" Or TypeName(objItem) = "MeetingItem" Then
                 If IsInArray(parsedConversations, objItem.ConversationID) = False And objItem.Parent.Name <> fldr.Name Then
                     objItem.Move fldr
@@ -375,11 +378,12 @@ Private Sub UserForm_Initialize()
     Dim parsedConversations(0) As String
     
     'Start with any conversations
-    Dim oSelection As Selection
-    Set oSelection = ActiveExplorer.Selection.GetSelection(olConversationHeaders)
+    Dim activeSelection, convSelection As Selection
+    Set activeSelection = ActiveExplorer.Selection
+    Set convSelection = activeSelection.GetSelection(olConversationHeaders)
     
-    If oSelection.Count > 0 Then
-        For Each objConvHeader In oSelection
+    If convSelection.Count > 0 Then
+        For Each objConvHeader In convSelection
             ' Cache conversation ID
             If IsInArray(parsedConversations, objConvHeader.ConversationID) = False Then
                 AddToArray parsedConversations, objConvHeader.ConversationID
@@ -391,7 +395,7 @@ Private Sub UserForm_Initialize()
         Next objConvHeader
     End If
     
-    For Each objItem In ActiveExplorer.Selection
+    For Each objItem In activeSelection
         If TypeName(objItem) = "MailItem" Or TypeName(objItem) = "AppointmentItem" Or TypeName(objItem) = "MeetingItem" Then
             If IsInArray(parsedConversations, objItem.ConversationID) = True Then
                 InitializeItem objItem, i, mb, numSelected, numEmailsSelected
