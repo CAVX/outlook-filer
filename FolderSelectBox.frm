@@ -1,10 +1,10 @@
-VERSION 2.00
+VERSION 5.00
 Begin {C62A69F0-16DC-11CE-9E98-00AA00574A4F} FolderSelectBox 
    Caption         =   "Select Folder for Filing"
-   ClientHeight    =   5376
+   ClientHeight    =   5370
    ClientLeft      =   120
-   ClientTop       =   472
-   ClientWidth     =   10704
+   ClientTop       =   465
+   ClientWidth     =   10710
    OleObjectBlob   =   "FolderSelectBox.frx":0000
    StartUpPosition =   3  'Windows Default
    WhatsThisHelp   =   -1  'True
@@ -14,7 +14,6 @@ Attribute VB_GlobalNameSpace = False
 Attribute VB_Creatable = False
 Attribute VB_PredeclaredId = True
 Attribute VB_Exposed = False
-
 
 
 ' Show a list of folders taken from the locations of a selected set of emails and/or conversations.
@@ -27,7 +26,7 @@ Attribute VB_Exposed = False
 '
 ' Also has a View button to switch the current view in outlook to the selected folder instead of filing.
 '
-' NB: Double-click on on a folder in either list is the same as pressing the "File" Button.
+' Double-click on on a folder in either list is the same as pressing the "File" Button.
 '
 ' WARNINGS: Assumed English folder names for exclusion of Inbox, Sent, etc. - special characters such as "/" are now supported.
 '
@@ -37,8 +36,9 @@ Attribute VB_Exposed = False
 '
 ' Current Author: Corey Blakeborough
 ' Original Author: Julian Knight (Totally Information)
-' Version: v2.0 2020-09-18
+' Version: v2.2 2020-09-18
 ' History:
+'   v2.2 2020-09-21 - Removal of extraneous fields/functionality. Bugfixes for selection, nested folders, and individual messages
 '   v2.0 2020-09-18 - Forked project. Conversation support. Fixed issue with special characters.
 '   v1.4 2015-06-29 - Chg default location to Win default. Add auto-selects. Add recents list (not yet working)
 '   v1.3 2015-06-12 - Add copy link to clipboard after moving
@@ -58,8 +58,8 @@ Dim maxFAP As Long
 Dim folderAllNames() As String
 Dim maxFAN As Long
 Dim mailbox As String
-Dim exitDelay As Long ' seconds to delay closure of form to allow copy of link
 Dim changingFolders As Boolean
+Dim parsedConversations() As String
 
 Private Sub btnCancel_Click()
     ' Do nothing other than cancel everything
@@ -92,14 +92,13 @@ Private Sub btnFileToFolder_Click()
     On Error GoTo err
     ' If anywhere to move to, move each email now
     If IsObject(fldr) Then
-        Dim parsedConversations(0) As String
+        ' Start with any conversations
+        Dim activeSelection, convSelection As Selection
+        Set activeSelection = ActiveExplorer.Selection
+        Set convSelection = activeSelection.GetSelection(olConversationHeaders)
         
-        'Start with any conversations
-        Dim oSelection As Selection
-        Set oSelection = ActiveExplorer.Selection.GetSelection(olConversationHeaders)
-        
-        If oSelection.Count > 0 Then
-            For Each objConvHeader In oSelection
+        If convSelection.Count > 0 Then
+            For Each objConvHeader In convSelection
                 ' Cache conversation ID
                 If IsInArray(parsedConversations, objConvHeader.ConversationID) = False Then
                     AddToArray parsedConversations, objConvHeader.ConversationID
@@ -110,7 +109,6 @@ Private Sub btnFileToFolder_Click()
                             If objItem.Parent.Name <> fldr.Name Then
                                 objItem.Move fldr
                                 x = x + 1
-                                AddLinkToMessage objItem
                             End If
                         End If
                     Next
@@ -118,20 +116,18 @@ Private Sub btnFileToFolder_Click()
             Next objConvHeader
         End If
         
-        'Now add any selected items that weren't part of those conversations
+        objItem = Empty
+        
+        ' Now add any selected items that weren't part of those conversations
         x = 0
-        For Each objItem In ActiveExplorer.Selection
+        For Each objItem In activeSelection
             If TypeName(objItem) = "MailItem" Or TypeName(objItem) = "AppointmentItem" Or TypeName(objItem) = "MeetingItem" Then
                 If IsInArray(parsedConversations, objItem.ConversationID) = False And objItem.Parent.Name <> fldr.Name Then
                     objItem.Move fldr
                     x = x + 1
-                    AddLinkToMessage objItem
                 End If
             End If
         Next objItem
-    
-        ' Also add the selected destination to the top of the recents list
-        lstRecent.AddItem fldr.Name
     End If
     
     GoTo endit
@@ -142,24 +138,17 @@ endit:
     On Error GoTo 0
     Set fldr = Nothing
     Set objItem = Nothing
-    ' Delay exit to allow time to copy the new link
-    'WaitFor (5)
     Unload Me
 End Sub
 
 Private Function fldrDest() As Outlook.MAPIFolder
     Dim obj As Object
-    'Dim fldrDest As Outlook.MAPIFolder
     Dim destIdx, arr, e, i As Integer
     Dim x
     Dim pos, val
     
     ' Index = -1 if nothing selected
     If lstFolders.ListIndex > -1 Then
-        'Debug.Print "Selected Folder", lstFolders.Value, lstFolders.ListIndex
-        'Debug.Print folderPaths(lstFolders.ListIndex)
-        
-        'NB: application.session.... gives the top level folder set for the current mailbox
         Set fldrDest = ReturnDestinationFolder(folderPaths(lstFolders.ListIndex), _
             Application.Session.GetDefaultFolder(olFolderInbox).Parent.Folders _
         )
@@ -167,22 +156,10 @@ Private Function fldrDest() As Outlook.MAPIFolder
         i = 1
         
     ElseIf lstAllFolders.ListIndex > -1 Then
-        'Debug.Print "Selected from All Folders", lstAllFolders.Value; lstAllFolders.ListIndex
-        
-        'arr = Filter(SourceArray:=folderAllPaths, Match:=lstAllFolders.Value, Compare:=vbTextCompare)
-        ' Annoyingly, filter has no way to do exact matches
-        'i = 0
-        'For Each e In arr
-        '    If Len(e) = Len("\\" & mailbox & lstAllFolders.Value) Then
-        '        ' exact match
-        '        i = i + 1
-        '        destFldr = e
-        '    End If
-        'Next e
         
         i = 0
         For e = LBound(folderAllNames) To UBound(folderAllNames)
-            If lstAllFolders.Value = folderAllNames(e) Then
+            If lstAllFolders.List(lstAllFolders.ListIndex) = folderAllNames(e) Then
                 i = i + 1
                 destIdx = e
             End If
@@ -190,9 +167,6 @@ Private Function fldrDest() As Outlook.MAPIFolder
         
         ' If there is more than one matching folder, error, else move
         If i = 1 Then
-            'Debug.Print "Filtered:", arr(0)
-            
-            'NB: application.session.... gives the top level folder set for the current mailbox
             Set fldrDest = ReturnDestinationFolder(folderAllNames(destIdx), _
                 Application.Session.GetDefaultFolder(olFolderInbox).Parent.Folders _
             )
@@ -228,8 +202,8 @@ Private Function ReturnDestinationFolder(findStr As Variant, fldrs As Outlook.Fo
     For Each fldr In fldrs
         If fldr.Name = findArr(idx) Then
             ' Any more to find?
-            If UBound(findArr) > idx Then 'LBound(findArr) Then
-                ' Yes, so recurse if there are any sub folders
+            If UBound(findArr) > idx Then
+                ' Recurse if there are any sub folders
                 If fldr.Folders.Count Then
                     Dim subStr As Variant
                     subStr = ""
@@ -305,19 +279,6 @@ Private Sub lstFolders_DblClick(ByVal Cancel As MSForms.ReturnBoolean)
     
 End Sub
 
-
-
-'Private Sub tbFilterAllFolders_BeforeUpdate(ByVal Cancel As MSForms.ReturnBoolean)
-'    With Me.tbFilterAllFolders
-'        If .Value = vbNullString Then
-'            Me.lstAllFolders.List = folderAllNames
-'        Else
-'            Me.lstAllFolders.List = Filter(SourceArray:=folderAllNames, match:=.Value, Compare:=vbTextCompare)
-'        End If
-'    End With
-'
-'End Sub
-
 ' If the text box contents change, begin filtering
 Private Sub tbFilterAllFolders_Change()
     
@@ -330,11 +291,41 @@ Private Sub tbFilterAllFolders_Change()
     End With
     
     On Error Resume Next
+    
     'When filtering, select the first from the all folders list
     lstAllFolders.Selected(0) = True
-    'Deselect the previously selected folder
-    lstFolders.Selected(0) = False
-    
+End Sub
+
+Private Sub tbFilterAllFolders_KeyDown(ByVal KeyCode As MSForms.ReturnInteger, ByVal Shift As Integer)
+    Dim x As Integer
+    Dim listIdx As Integer
+     If KeyCode = KeyCodeConstants.vbKeyDown And lstAllFolders.ListCount > 0 Then
+        listIdx = 0
+        
+        For x = 0 To lstAllFolders.ListCount - 1
+            If x = lstAllFolders.ListCount - 1 Then
+                Exit Sub
+            ElseIf lstAllFolders.Selected(x) = True Then
+                lstAllFolders.Selected(x) = False
+                listIdx = x + 1
+                Exit For
+            End If
+        Next x
+        
+        lstAllFolders.Selected(listIdx) = True
+     ElseIf KeyCode = KeyCodeConstants.vbKeyUp And lstAllFolders.ListCount > 0 Then
+        listIdx = 0
+        
+        For x = 1 To lstAllFolders.ListCount - 1
+            If lstAllFolders.Selected(x) = True Then
+                lstAllFolders.Selected(x) = False
+                listIdx = x - 1
+                Exit For
+            End If
+        Next x
+        
+        lstAllFolders.Selected(listIdx) = True
+     End If
 End Sub
 
 ' Set up the form
@@ -354,13 +345,12 @@ Private Sub UserForm_Initialize()
     ReDim Preserve folderPaths(0)
     ReDim Preserve folderAllPaths(0)
     ReDim Preserve folderAllNames(0)
+    ReDim Preserve parsedConversations(0)
     
-    'Start Userform Centered inside Excel Screen (for dual monitors)
-    ' From http://www.thespreadsheetguru.com/the-code-vault/launch-vba-userforms-in-correct-window-with-dual-monitors
-    'Me.StartUpPosition = 3
-    'Me.Left = Application.ActiveWindow.Left + (0.5 * Application.ActiveWindow.Width) - (0.5 * Me.Width)
-    'Me.Top = Application.ActiveWindow.Top + (0.5 * Application.ActiveWindow.Height) - (0.5 * Me.Height)
-    'Debug.Print Me.Left, Me.Top
+    ' Center Window
+    Me.StartUpPosition = 3
+    Me.Left = Application.ActiveWindow.Left + (0.5 * Application.ActiveWindow.Width) - (Me.Width)
+    Me.Top = Application.ActiveWindow.Top + (0.5 * Application.ActiveWindow.Height) - (Me.Height)
     
     'List of accounts: Application.Session.Accounts
     
@@ -372,14 +362,13 @@ Private Sub UserForm_Initialize()
     numSelected = 0
     numEmailsSelected = 0
     
-    Dim parsedConversations(0) As String
-    
     'Start with any conversations
-    Dim oSelection As Selection
-    Set oSelection = ActiveExplorer.Selection.GetSelection(olConversationHeaders)
+    Dim activeSelection, convSelection As Selection
+    Set activeSelection = ActiveExplorer.Selection
+    Set convSelection = activeSelection.GetSelection(olConversationHeaders)
     
-    If oSelection.Count > 0 Then
-        For Each objConvHeader In oSelection
+    If convSelection.Count > 0 Then
+        For Each objConvHeader In convSelection
             ' Cache conversation ID
             If IsInArray(parsedConversations, objConvHeader.ConversationID) = False Then
                 AddToArray parsedConversations, objConvHeader.ConversationID
@@ -391,7 +380,7 @@ Private Sub UserForm_Initialize()
         Next objConvHeader
     End If
     
-    For Each objItem In ActiveExplorer.Selection
+    For Each objItem In activeSelection
         If TypeName(objItem) = "MailItem" Or TypeName(objItem) = "AppointmentItem" Or TypeName(objItem) = "MeetingItem" Then
             If IsInArray(parsedConversations, objItem.ConversationID) = True Then
                 InitializeItem objItem, i, mb, numSelected, numEmailsSelected
@@ -399,9 +388,8 @@ Private Sub UserForm_Initialize()
         End If
     Next objItem
     
-    'Debug.Print "# Selected:", numSelected
-    'Debug.Print "# Emails Sel:", numEmailsSelected
-    'Debug.Print "# Folders:", i, "(Igoring Inbox)"
+    
+    ReDim parsedConversations(0)
     
     ' Show the list of folders where any of the selected items are already filed
     lstFolders.List = folderNames
@@ -520,46 +508,8 @@ Sub ProcessFolder(objStartFolder As Outlook.MAPIFolder, _
 
 End Sub
 
-' Create an outlook: link to a msg
-Sub AddLinkToMessage(objItem As Variant)
-    If TypeName(objItem) <> "MailItem" And TypeName(objItem) <> "AppointmentItem" Then
-        Exit Sub
-    End If
-    
-    'Dim objMail As Object
-    'was earlier Outlook.MailItem
-    'Dim doClipboard As New DataObject
-    Dim txt As String
-      
-    'One and ONLY one message muse be selected
-    'Set objMail = Application.ActiveExplorer.Selection.Item(1)
-    
-    'If objMail.Class = olMail Then
-    '    txt = "outlook:" + objMail.EntryID + "][MESSAGE: " + objMail.Subject + " (" + objMail.SenderName + ")"
-    'ElseIf objMail.Class = olAppointment Then
-    '    txt = "outlook:" + objMail.EntryID + "][MEETING: " + objMail.Subject + " (" + objMail.Organizer + ")"
-    'ElseIf objMail.Class = olTask Then
-    '    txt = "outlook:" + objMail.EntryID + "][TASK: " + objMail.Subject + " (" + objMail.Owner + ")>"
-    'ElseIf objMail.Class = olContact Then
-    '    txt = "outlook:" + objMail.EntryID + "][CONTACT: " + objMail.Subject + " (" + objMail.FullName + ")"
-    'ElseIf objMail.Class = olJournal Then
-    '    txt = "outlook:" + objMail.EntryID + "][JOURNAL: " + objMail.Subject + " (" + objMail.Type + ")"
-    'ElseIf objMail.Class = olNote Then
-    '    txt = "outlook:" + objMail.EntryID + "][NOTE: " + objMail.Subject + " (" + " " + ")"
-    'Else
-    '    txt = "outlook:" + objMail.EntryID + "][ITEM: " + objMail.Subject + " (" + objMail.MessageClass + ")"
-    'End If
-    
-    txt = "outlook:" + objItem.EntryID
-    
-    ' Replace all spaces with %20
-    CopyTextToClipboard (Replace(txt, " ", "%20"))
-    
-End Sub
-
 
 ' ---- Functions from other people ----
-
 Private Sub AddToArray(ByRef arr As Variant, val As Variant)
 On Error GoTo err
     If arr(0) <> "" Or UBound(arr) > 0 Then
@@ -571,37 +521,20 @@ On Error GoTo err
     Exit Sub
 err:
     Debug.Print "Failed to add to array"
+    Dim Msg As String
+    Msg = "Error # " & Str(err.Number) & " was generated by " _
+         & err.Source & Chr(13) & "Error Line: " & Erl & Chr(13) & err.Description
+    MsgBox Msg, , "Error", err.HelpFile, err.HelpContext
 End Sub
 
 Function IsInArray(arr As Variant, valueToFind As Variant) As Boolean
-' checks if valueToFind is found in arr, no loop!
-On Error GoTo err
-  IsInArray = (UBound(Filter(arr, valueToFind)) > -1)
-  Exit Function
+    ' checks if valueToFind is found in arr, no loop!
+    On Error GoTo err
+    IsInArray = (UBound(Filter(arr, valueToFind)) > -1)
+    Exit Function
 err:
     Debug.Print "Failed to add to array"
 End Function
-
-' @see: http://www.thespreadsheetguru.com/blog/2015/1/13/how-to-use-vba-code-to-copy-text-to-the-clipboard
-Sub CopyTextToClipboard(txt As String)
-    'PURPOSE: Copy a given text to the clipboard (using DataObject)
-    'SOURCE: www.TheSpreadsheetGuru.com
-    'NOTES: Must enable Forms Library: Checkmark Tools > References > Microsoft Forms 2.0 Object Library
-    
-    Dim obj As New DataObject
-    
-    'Make object's text equal above string variable
-    obj.SetText txt
-    
-    'Place DataObject's text into the Clipboard
-    ' >> WARNING: Not working in Windows 8.1! Just get "??" instead of content <<
-    'obj.PutInClipboard
-    tbLink.Value = txt
-    
-    'Notify User
-    'MsgBox txt, vbInformation
-
-End Sub
 
 Sub WaitFor(NumOfSeconds As Long)
     Dim SngSec As Long
