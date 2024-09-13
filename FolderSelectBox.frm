@@ -1,10 +1,10 @@
 VERSION 5.00
 Begin {C62A69F0-16DC-11CE-9E98-00AA00574A4F} FolderSelectBox 
    Caption         =   "Select Folder for Filing"
-   ClientHeight    =   5370
-   ClientLeft      =   120
-   ClientTop       =   465
-   ClientWidth     =   10710
+   ClientHeight    =   5520
+   ClientLeft      =   15
+   ClientTop       =   -45
+   ClientWidth     =   10740
    OleObjectBlob   =   "FolderSelectBox.frx":0000
    StartUpPosition =   3  'Windows Default
    WhatsThisHelp   =   -1  'True
@@ -14,8 +14,6 @@ Attribute VB_GlobalNameSpace = False
 Attribute VB_Creatable = False
 Attribute VB_PredeclaredId = True
 Attribute VB_Exposed = False
-
-
 ' Show a list of folders taken from the locations of a selected set of emails and/or conversations.
 ' Also shows a FULL list of all folders with a dynamic filter box, type some chars to filter the full list
 ' If a folder is selected (preference given to the select folder list), file all of the selected emails to that folder.
@@ -86,7 +84,7 @@ Private Sub btnFileToFolder_Click()
     Dim fldr As Outlook.MAPIFolder
     Dim objItem As Variant
     Dim objConvHeader As Outlook.ConversationHeader
-    Dim x As Long
+    Dim X As Long
     
     Set fldr = fldrDest
     On Error GoTo err
@@ -108,7 +106,7 @@ Private Sub btnFileToFolder_Click()
                             ' Only move items not already in the dest folder
                             If objItem.Parent.Name <> fldr.Name Then
                                 objItem.Move fldr
-                                x = x + 1
+                                X = X + 1
                             End If
                         End If
                     Next
@@ -119,12 +117,12 @@ Private Sub btnFileToFolder_Click()
         objItem = Empty
         
         ' Now add any selected items that weren't part of those conversations
-        x = 0
+        X = 0
         For Each objItem In activeSelection
             If TypeName(objItem) = "MailItem" Or TypeName(objItem) = "AppointmentItem" Or TypeName(objItem) = "MeetingItem" Then
                 If IsInArray(parsedConversations, objItem.ConversationID) = False And objItem.Parent.Name <> fldr.Name Then
                     objItem.Move fldr
-                    x = x + 1
+                    X = X + 1
                 End If
             End If
         Next objItem
@@ -144,7 +142,7 @@ End Sub
 Private Function fldrDest() As Outlook.MAPIFolder
     Dim obj As Object
     Dim destIdx, arr, e, i As Integer
-    Dim x
+    Dim X
     Dim pos, val
     
     ' Index = -1 if nothing selected
@@ -297,32 +295,32 @@ Private Sub tbFilterAllFolders_Change()
 End Sub
 
 Private Sub tbFilterAllFolders_KeyDown(ByVal KeyCode As MSForms.ReturnInteger, ByVal Shift As Integer)
-    Dim x As Integer
+    Dim X As Integer
     Dim listIdx As Integer
      If KeyCode = KeyCodeConstants.vbKeyDown And lstAllFolders.ListCount > 0 Then
         listIdx = 0
         
-        For x = 0 To lstAllFolders.ListCount - 1
-            If x = lstAllFolders.ListCount - 1 Then
+        For X = 0 To lstAllFolders.ListCount - 1
+            If X = lstAllFolders.ListCount - 1 Then
                 Exit Sub
-            ElseIf lstAllFolders.Selected(x) = True Then
-                lstAllFolders.Selected(x) = False
-                listIdx = x + 1
+            ElseIf lstAllFolders.Selected(X) = True Then
+                lstAllFolders.Selected(X) = False
+                listIdx = X + 1
                 Exit For
             End If
-        Next x
+        Next X
         
         lstAllFolders.Selected(listIdx) = True
      ElseIf KeyCode = KeyCodeConstants.vbKeyUp And lstAllFolders.ListCount > 0 Then
         listIdx = 0
         
-        For x = 1 To lstAllFolders.ListCount - 1
-            If lstAllFolders.Selected(x) = True Then
-                lstAllFolders.Selected(x) = False
-                listIdx = x - 1
+        For X = 1 To lstAllFolders.ListCount - 1
+            If lstAllFolders.Selected(X) = True Then
+                lstAllFolders.Selected(X) = False
+                listIdx = X - 1
                 Exit For
             End If
-        Next x
+        Next X
         
         lstAllFolders.Selected(listIdx) = True
      End If
@@ -338,8 +336,8 @@ Private Sub UserForm_Initialize()
     Dim numEmailsSelected As Long
     Dim mb() As String
     
-    Dim x As Object
-    Set x = Application
+    Dim X As Object
+    Set X = Application
     
     ReDim Preserve folderNames(0)
     ReDim Preserve folderPaths(0)
@@ -347,12 +345,13 @@ Private Sub UserForm_Initialize()
     ReDim Preserve folderAllNames(0)
     ReDim Preserve parsedConversations(0)
     
-    ' Center Window
-    Me.StartUpPosition = 3
-    Me.Left = Application.ActiveWindow.Left + (0.5 * Application.ActiveWindow.Width) - (Me.Width)
-    Me.Top = Application.ActiveWindow.Top + (0.5 * Application.ActiveWindow.Height) - (Me.Height)
-    
-    'List of accounts: Application.Session.Accounts
+    ' Center Window and adjust for scale
+    screenScale = PointsPerPixel
+    With Me
+        .StartUpPosition = 3
+        .left = (Application.ActiveWindow.left * screenScale) + (0.5 * (Application.ActiveWindow.Width * screenScale)) - (Me.Width / 2)
+        .top = (Application.ActiveWindow.top * screenScale) + (0.5 * (Application.ActiveWindow.Height * screenScale)) - (Me.Height / 2)
+    End With
     
     ' Walk through all selected emails and compile a list of folders
     ' that they are in.
@@ -545,4 +544,3 @@ Sub WaitFor(NumOfSeconds As Long)
     Loop
 
 End Sub
-
