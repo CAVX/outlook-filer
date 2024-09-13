@@ -8,16 +8,7 @@ This utility can save vast amounts of time if, like me, you have many (hundreds 
  - Unpack the *.frm and *.frx files to somewhere convenient.
  - Open the VBA project editor - you can use the alt-f11 keyboard shortcut
  - Import the *.frm file
- - Insert a new Module
- - Add the following code to the new module:
-
-```VB
-Option Explicit
-
-Sub FileToFolder()
-    FolderSelectBox.Show
-End Sub
-```
+ - Import the module
 
  - Make sure that you have changed the settings to allow Outlook to run your code. 
    You may wish to create a self-signed code signing certificate and sign your VBA code with that.
